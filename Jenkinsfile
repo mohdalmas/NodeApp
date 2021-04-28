@@ -4,7 +4,7 @@ node {
     stage('Clone repository') {
         /* Cloning the Repository to our Workspace */
 
-        git poll: true, url: 'https://github.com/saquibm6/NodeApp.git'
+        git poll: true, url: 'https://github.com/mohdalmas/NodeApp.git'
     }
 
     stage('Build image') {
