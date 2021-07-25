@@ -1,0 +1,77 @@
+pipeline {
+    agent any
+        
+        parameters{
+            string(defaultValue: 'form5_report', description: 'Provide the name of JRXML file, without the extension that should be used to create report. Defaults to form5_report.', name: 'JRXML_FILE', trim: false)
+            string(defaultValue: "${params.JRXML_FILE}.${BUILD_NUMBER}", description: 'Provide a name for the generated report. By default, it would be same as JRXML with BUILD_NUMBER.', name: 'TESTUNIT', trim: false)
+        }
+        
+        environment{
+            JRXML_FILE = "${JRXML_FILE}.jrxml"
+            
+            def XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                       <reportUnit>
+                            <description/>
+                            <label>${TESTUNIT}</label>
+                            <permissionMask>1</permissionMask>
+                            <uri>/Reports</uri>
+                            <version>0</version>
+                            <dataSourceReference>
+                                <uri>/Data_Sources/postgres</uri>
+                            </dataSourceReference>
+                            <alwaysPromptControls>true</alwaysPromptControls>
+                            <controlsLayout>popupScreen</controlsLayout>
+                            <inputControlRenderingView/>
+                            <jrxmlFileReference>
+                                <uri>/Reports/${JRXML_FILE}</uri>
+                            </jrxmlFileReference>
+                        </reportUnit>"""
+        }
+
+    stages {
+        stage('File Check') {
+            steps {
+                script {
+                    String url = "https://jasperreport-development-edp-cicd-environment-dev.eks.tfs-dose-development.com/jasperserver/rest_v2/resources?q=${JRXML_FILE}"
+                    def (String code) = 
+                        sh(script: "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Basic YWRtaW46ZFhkSG1uVk1xWQ==' $url", returnStdout: true).trim().tokenize("\n")
+                    
+                    if(code == '200'){
+                        stage ('Create Report'){
+                            sh '''
+                            curl --location --request POST 'https://jasperreport-development-edp-cicd-environment-dev.eks.tfs-dose-development.com/jasperserver/rest_v2/resources/Reports' \
+                            --header 'Content-Type: application/repository.reportUnit+xml' \
+                            --header 'Authorization: Basic YWRtaW46ZFhkSG1uVk1xWQ==' \
+                            -d "$XML"
+                            '''    
+                        }
+                    }else{
+                        stage('SCM Checkout'){
+                            git branch: 'develop',
+                                credentialsId: 'github-ciuser-sshkey',
+                                url: 'ssh://git@github.com/thermofisher/report-service'
+                        }
+                        stage('Upload JRXML File to JasperServer'){
+                            sh '''
+                            curl --location --request POST 'https://jasperreport-development-edp-cicd-environment-dev.eks.tfs-dose-development.com/jasperserver/rest_v2/resources/Reports/' \
+                            --header 'Content-Type: application/jrxml' \
+                            --header "Content-Disposition: attachment; filename=${JRXML_FILE}" \
+                            --header 'Content-Description: Uploaded jrxml file' \
+                            --header 'Authorization: Basic YWRtaW46ZFhkSG1uVk1xWQ==' \
+                            --data-binary "@$WORKSPACE/report-templates/${JRXML_FILE}"
+                            '''
+                        }
+                        stage('Create Report'){
+                            sh '''
+                            curl --location --request POST 'https://jasperreport-development-edp-cicd-environment-dev.eks.tfs-dose-development.com/jasperserver/rest_v2/resources/Reports' \
+                            --header 'Content-Type: application/repository.reportUnit+xml' \
+                            --header 'Authorization: Basic YWRtaW46ZFhkSG1uVk1xWQ==' \
+                            -d "$XML"
+                            '''    
+                        }
+                    }
+                }
+            }
+        }
+    }
+}    
